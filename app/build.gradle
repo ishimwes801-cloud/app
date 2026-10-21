@@ -1,0 +1,14 @@
+plugins {
+    id 'com.android.application'
+}
+android {
+    namespace 'xyz.hamarashare'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'xyz.hamarashare'
+        minSdk 26
+        targetSdk 32
+        versionCode 1
+        versionName '0.1.0'
+    }
+}
