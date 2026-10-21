@@ -1,4 +1,4 @@
-
+```yaml
 name: Build Hamara Share APK
 
 on:
@@ -28,10 +28,17 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          accept-android-sdk-licenses: true
+          packages: ''
 
-      - name: Accept remaining Android SDK licenses
-        run: yes | sdkmanager --licenses || true
+      - name: Accept Android SDK licenses
+        shell: bash
+        run: |
+          set -o pipefail
+          yes | sdkmanager --licenses
+
+      - name: Install Android build packages
+        run: |
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -46,3 +53,4 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
+```
