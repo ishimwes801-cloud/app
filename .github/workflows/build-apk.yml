@@ -2,9 +2,11 @@ name: Build Hamara Share APK
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   pull_request:
-    branches: [main]
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -12,7 +14,13 @@ permissions:
 
 jobs:
   build:
+    name: Build Android APK
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
 
     steps:
       - name: Checkout repository
@@ -24,23 +32,56 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Check Android SDK
+      - name: Locate Android SDK
         shell: bash
         run: |
+          echo "Checking Android SDK..."
           echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-          echo "Java version:"
-          java -version
-          echo "Installed SDK packages:"
-          sdkmanager --list_installed
 
-      - name: Install required Android packages
+          if [ ! -d "$ANDROID_HOME" ]; then
+            echo "::error::Android SDK directory not found: $ANDROID_HOME"
+            exit 1
+          fi
+
+          find "$ANDROID_HOME" -type f -name sdkmanager 2>/dev/null | head -10
+
+      - name: Locate SDK manager
         shell: bash
         run: |
-          sdkmanager \
+          set -e
+
+          SDKMANAGER="$(find "$ANDROID_HOME" -type f -name sdkmanager 2>/dev/null | head -1)"
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "::error::sdkmanager was not found."
+            exit 1
+          fi
+
+          echo "SDKMANAGER=$SDKMANAGER" >> "$GITHUB_ENV"
+          echo "Found SDK manager: $SDKMANAGER"
+          "$SDKMANAGER" --version
+
+      - name: Accept Android SDK licenses
+        shell: bash
+        run: |
+          set +e
+          yes | "$SDKMANAGER" --licenses
+          sdk_status=${PIPESTATUS[1]}
+          set -e
+
+          echo "sdkmanager exit code: $sdk_status"
+
+          if [ "$sdk_status" -ne 0 ]; then
+            echo "::error::Android SDK license acceptance failed."
+            exit "$sdk_status"
+          fi
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          set -e
+
+          "$SDKMANAGER" \
             "platform-tools" \
             "platforms;android-35" \
             "build-tools;35.0.0"
@@ -48,20 +89,48 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Check Android project
+        shell: bash
+        run: |
+          set -e
+
+          echo "Project files:"
+          ls -la
+
+          if [ ! -f "settings.gradle" ] &&
+             [ ! -f "settings.gradle.kts" ]; then
+            echo "::error::Gradle settings file not found in repository root."
+            exit 1
+          fi
+
+          if [ ! -d "app" ]; then
+            echo "::error::The app directory was not found."
+            exit 1
+          fi
+
       - name: Build debug APK
         shell: bash
         run: |
+          set -e
+
           if [ -f "./gradlew" ]; then
             chmod +x ./gradlew
-            ./gradlew --stacktrace assembleDebug
+            ./gradlew --no-daemon --stacktrace assembleDebug
           else
-            gradle --stacktrace assembleDebug
+            gradle --no-daemon --stacktrace assembleDebug
           fi
 
       - name: Find generated APK
         shell: bash
         run: |
+          set -e
+
           find . -type f -path '*/build/outputs/apk/*/*.apk' -print
+
+          if ! find . -type f -path '*/build/outputs/apk/*/*.apk' | grep -q .; then
+            echo "::error::No APK was generated."
+            exit 1
+          fi
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
@@ -70,3 +139,4 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
+
